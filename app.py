@@ -1,238 +1,638 @@
+import os
 import pickle
 import numpy as np
-import pandas as pd
-import streamlit as st
-import plotly.graph_objects as go
+from flask import Flask, request, jsonify, render_template_string
 
-# ----------------------------------------------------------------------------
-# Page configuration
-# ----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Customer Churn Predictor",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+app = Flask(__name__)
 
-# ----------------------------------------------------------------------------
-# Custom CSS for a clean, professional look
-# ----------------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-        .main { background-color: #f7f9fc; }
+# Load the trained model
+MODEL_PATH = 'model.pkl'
+with open(MODEL_PATH, 'rb') as f:
+    model = pickle.load(f)
 
-        .block-container { padding-top: 2rem; padding-bottom: 3rem; }
+# HTML Template with Embedded CSS styling (Shadows, layout, and responsiveness)
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
 
-        h1, h2, h3 { font-family: 'Segoe UI', sans-serif; color: #1f2937; }
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-        .app-header {
-            background: linear-gradient(90deg, #1e3a8a 0%, #2563eb 100%);
-            padding: 2rem 2.5rem;
-            border-radius: 16px;
-            color: white;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 8px 24px rgba(30, 58, 138, 0.25);
-        }
-        .app-header h1 { color: white; margin-bottom: 0.25rem; }
-        .app-header p { color: #dbeafe; font-size: 1.05rem; margin: 0; }
+<title>AI Customer Churn Prediction</title>
 
-        .metric-card {
-            background: white;
-            border-radius: 14px;
-            padding: 1.25rem 1.5rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-            border: 1px solid #e5e7eb;
-        }
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-        .result-card {
-            border-radius: 16px;
-            padding: 1.75rem 2rem;
-            box-shadow: 0 4px 18px rgba(0,0,0,0.08);
-            margin-top: 1rem;
-        }
-        .result-stay { background: #ecfdf5; border: 1px solid #10b981; }
-        .result-churn { background: #fef2f2; border: 1px solid #ef4444; }
+<style>
 
-        .stButton>button {
-            background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            padding: 0.6rem 1.5rem;
-            font-weight: 600;
-            font-size: 1rem;
-            width: 100%;
-            transition: all 0.2s ease-in-out;
-        }
-        .stButton>button:hover {
-            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
-            transform: translateY(-1px);
-        }
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:'Poppins',sans-serif;
+}
 
-        section[data-testid="stSidebar"] {
-            background-color: #111827;
-        }
-        section[data-testid="stSidebar"] * { color: #e5e7eb !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
-# ----------------------------------------------------------------------------
-# Load model
-# ----------------------------------------------------------------------------
-@st.cache_resource
-def load_model():
-    with open("model.pkl", "rb") as f:
-        return pickle.load(f)
+body{
 
-model = load_model()
+    min-height:100vh;
+    background:
+    linear-gradient(135deg,#667eea,#764ba2);
 
-FEATURES = [
-    "credit_score", "country", "gender", "age", "tenure", "balance",
-    "products_number", "credit_card", "active_member", "estimated_salary",
-]
+    display:flex;
+    justify-content:center;
+    align-items:center;
 
-COUNTRY_MAP = {"France": 0, "Germany": 1, "Spain": 2}
-GENDER_MAP = {"Female": 0, "Male": 1}
+    padding:30px;
 
-# ----------------------------------------------------------------------------
-# Header
-# ----------------------------------------------------------------------------
-st.markdown(
-    """
-    <div class="app-header">
-        <h1>📊 Customer Churn Predictor</h1>
-        <p>Estimate the likelihood that a bank customer will churn, powered by a Random Forest model.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+}
 
-# ----------------------------------------------------------------------------
-# Sidebar — About / Info
-# ----------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("### ℹ️ About this app")
-    st.write(
-        "This tool uses a trained **Random Forest Classifier** to predict whether "
-        "a bank customer is likely to churn based on their profile and account activity."
-    )
-    st.markdown("### 🧠 Model details")
-    st.write(f"- Algorithm: `RandomForestClassifier`")
-    st.write(f"- Trees: `{model.n_estimators}`")
-    st.write(f"- Features used: `{len(FEATURES)}`")
-    st.markdown("---")
-    st.caption(
-        "⚠️ Country and gender are encoded as France=0, Germany=1, Spain=2 and "
-        "Female=0, Male=1. Adjust the mapping in the code if your training "
-        "encoding was different."
-    )
 
-# ----------------------------------------------------------------------------
-# Input form
-# ----------------------------------------------------------------------------
-st.markdown("### Enter Customer Details")
+.dashboard{
 
-with st.form("churn_form"):
-    col1, col2, col3 = st.columns(3)
 
-    with col1:
-        credit_score = st.slider("Credit Score", 300, 900, 650)
-        age = st.slider("Age", 18, 100, 35)
-        tenure = st.slider("Tenure (years with bank)", 0, 10, 5)
+    width:100%;
+    max-width:1100px;
 
-    with col2:
-        balance = st.number_input("Account Balance ($)", min_value=0.0, value=50000.0, step=500.0)
-        estimated_salary = st.number_input("Estimated Salary ($)", min_value=0.0, value=60000.0, step=500.0)
-        products_number = st.selectbox("Number of Products", [1, 2, 3, 4], index=0)
+    background:rgba(255,255,255,0.15);
 
-    with col3:
-        country = st.selectbox("Country", list(COUNTRY_MAP.keys()))
-        gender = st.selectbox("Gender", list(GENDER_MAP.keys()))
-        credit_card = st.radio("Has Credit Card?", ["Yes", "No"], horizontal=True)
-        active_member = st.radio("Active Member?", ["Yes", "No"], horizontal=True)
+    backdrop-filter:blur(20px);
 
-    submitted = st.form_submit_button("🔍 Predict Churn")
+    border-radius:25px;
 
-# ----------------------------------------------------------------------------
-# Prediction
-# ----------------------------------------------------------------------------
-if submitted:
-    input_dict = {
-        "credit_score": credit_score,
-        "country": COUNTRY_MAP[country],
-        "gender": GENDER_MAP[gender],
-        "age": age,
-        "tenure": tenure,
-        "balance": balance,
-        "products_number": products_number,
-        "credit_card": 1 if credit_card == "Yes" else 0,
-        "active_member": 1 if active_member == "Yes" else 0,
-        "estimated_salary": estimated_salary,
-    }
-    input_df = pd.DataFrame([input_dict], columns=FEATURES)
+    padding:35px;
 
-    prediction = model.predict(input_df)[0]
-    probability = model.predict_proba(input_df)[0][1]  # probability of class 1 (churn)
+    box-shadow:
+    0 25px 50px rgba(0,0,0,0.25);
 
-    st.markdown("### Prediction Result")
+    color:white;
 
-    result_col, gauge_col = st.columns([1, 1])
+}
 
-    with result_col:
-        if prediction == 1:
-            st.markdown(
-                f"""
-                <div class="result-card result-churn">
-                    <h2>⚠️ Likely to Churn</h2>
-                    <p style="font-size:1.1rem;">This customer shows a high risk of leaving the bank.</p>
-                    <h1 style="color:#ef4444;">{probability*100:.1f}%</h1>
-                    <p>Estimated churn probability</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f"""
-                <div class="result-card result-stay">
-                    <h2>✅ Likely to Stay</h2>
-                    <p style="font-size:1.1rem;">This customer shows a low risk of leaving the bank.</p>
-                    <h1 style="color:#10b981;">{probability*100:.1f}%</h1>
-                    <p>Estimated churn probability</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
 
-    with gauge_col:
-        fig = go.Figure(
-            go.Indicator(
-                mode="gauge+number",
-                value=probability * 100,
-                number={"suffix": "%"},
-                title={"text": "Churn Risk"},
-                gauge={
-                    "axis": {"range": [0, 100]},
-                    "bar": {"color": "#2563eb"},
-                    "steps": [
-                        {"range": [0, 33], "color": "#dcfce7"},
-                        {"range": [33, 66], "color": "#fef9c3"},
-                        {"range": [66, 100], "color": "#fee2e2"},
-                    ],
-                },
-            )
-        )
-        fig.update_layout(height=280, margin=dict(t=40, b=10, l=20, r=20))
-        st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("🔎 View input data sent to the model"):
-        st.dataframe(input_df, use_container_width=True)
+.header{
 
-else:
-    st.info("Fill in the customer details above and click **Predict Churn** to see the result.")
+    text-align:center;
+    margin-bottom:35px;
 
-st.markdown("---")
-st.caption("Built with Streamlit · Random Forest model · For demonstration purposes only.")
+}
+
+
+.header h1{
+
+    font-size:38px;
+    font-weight:700;
+
+}
+
+
+.header p{
+
+    margin-top:10px;
+    opacity:.8;
+
+}
+
+
+
+.form-grid{
+
+
+display:grid;
+
+grid-template-columns:repeat(3,1fr);
+
+gap:22px;
+
+
+}
+
+
+
+.input-box{
+
+
+background:white;
+
+padding:15px;
+
+border-radius:15px;
+
+color:#333;
+
+
+}
+
+
+
+.input-box label{
+
+
+font-size:14px;
+
+font-weight:600;
+
+display:block;
+
+margin-bottom:8px;
+
+
+}
+
+
+
+input,select{
+
+
+width:100%;
+
+border:none;
+
+outline:none;
+
+font-size:15px;
+
+padding:10px;
+
+border-radius:10px;
+
+background:#f4f6ff;
+
+
+}
+
+
+
+button{
+
+
+margin-top:30px;
+
+width:100%;
+
+padding:15px;
+
+border:none;
+
+border-radius:15px;
+
+background:#ff6b6b;
+
+color:white;
+
+font-size:18px;
+
+font-weight:600;
+
+cursor:pointer;
+
+
+transition:.3s;
+
+
+}
+
+
+
+button:hover{
+
+
+transform:translateY(-3px);
+
+background:#ff4757;
+
+
+}
+
+
+
+
+.result{
+
+
+margin-top:30px;
+
+padding:25px;
+
+border-radius:18px;
+
+text-align:center;
+
+font-size:22px;
+
+font-weight:600;
+
+display:none;
+
+
+}
+
+
+
+.churn{
+
+
+background:#ffe0e0;
+
+color:#c0392b;
+
+
+}
+
+
+
+.safe{
+
+
+background:#d4ffd8;
+
+color:#1e8449;
+
+
+}
+
+
+
+.progress{
+
+
+height:15px;
+
+background:#ddd;
+
+border-radius:20px;
+
+overflow:hidden;
+
+margin-top:15px;
+
+
+}
+
+
+
+.progress-bar{
+
+
+height:100%;
+
+width:0%;
+
+transition:1s;
+
+
+}
+
+
+
+@media(max-width:900px){
+
+
+.form-grid{
+
+grid-template-columns:1fr 1fr;
+
+}
+
+}
+
+
+
+@media(max-width:600px){
+
+
+.form-grid{
+
+grid-template-columns:1fr;
+
+}
+
+
+.header h1{
+
+font-size:28px;
+
+}
+
+
+}
+
+
+
+</style>
+
+
+</head>
+
+
+
+<body>
+
+
+<div class="dashboard">
+
+
+<div class="header">
+
+
+<h1>🏦 Customer Churn Analytics Prediction</h1>
+
+<p>Machine Learning Powered Customer Retention Analytics</p>
+
+
+</div>
+
+
+
+<form id="prediction-form">
+
+
+<div class="form-grid">
+
+
+
+<div class="input-box">
+
+<label>Credit Score</label>
+
+<input type="number" name="credit_score" value="650">
+
+</div>
+
+
+
+<div class="input-box">
+
+<label>Country</label>
+
+<select name="country">
+
+<option value="0">France</option>
+
+<option value="1">Germany</option>
+
+<option value="2">Spain</option>
+
+</select>
+
+</div>
+
+
+
+<div class="input-box">
+
+<label>Gender</label>
+
+<select name="gender">
+
+<option value="1">Male</option>
+
+<option value="0">Female</option>
+
+</select>
+
+</div>
+
+
+
+
+<div class="input-box">
+
+<label>Age</label>
+
+<input type="number" name="age" value="35">
+
+</div>
+
+
+
+<div class="input-box">
+
+<label>Tenure</label>
+
+<input type="number" name="tenure" value="5">
+
+</div>
+
+
+
+
+<div class="input-box">
+
+<label>Account Balance</label>
+
+<input type="number" name="balance" value="50000">
+
+</div>
+
+
+
+
+<div class="input-box">
+
+<label>Products</label>
+
+<input type="number" name="products_number" value="1">
+
+</div>
+
+
+
+
+<div class="input-box">
+
+<label>Credit Card</label>
+
+<select name="credit_card">
+
+<option value="1">Yes</option>
+
+<option value="0">No</option>
+
+</select>
+
+</div>
+
+
+
+<div class="input-box">
+
+<label>Active Member</label>
+
+<select name="active_member">
+
+<option value="1">Yes</option>
+
+<option value="0">No</option>
+
+</select>
+
+</div>
+
+
+
+
+<div class="input-box">
+
+<label>Estimated Salary</label>
+
+<input type="number" name="estimated_salary" value="60000">
+
+</div>
+
+
+
+</div>
+
+
+
+<button>
+🔍 Analyze Customer Risk
+</button>
+
+
+</form>
+
+
+
+
+<div id="result" class="result">
+
+
+</div>
+
+
+</div>
+
+
+
+
+<script>
+
+
+document.getElementById("prediction-form")
+.addEventListener("submit",async function(e){
+
+
+e.preventDefault();
+
+
+let form=new FormData(this);
+
+
+let data={};
+
+
+form.forEach((v,k)=>{
+
+
+data[k]=Number(v);
+
+
+});
+
+
+
+let result=document.getElementById("result");
+
+
+
+let response=await fetch("/predict",{
+
+
+method:"POST",
+
+headers:{
+
+"Content-Type":"application/json"
+
+},
+
+
+body:JSON.stringify(data)
+
+
+});
+
+
+
+let output=await response.json();
+
+
+
+result.style.display="block";
+
+
+
+let probability=(output.probability*100).toFixed(2);
+
+
+
+if(output.prediction==1){
+
+
+result.className="result churn";
+
+
+result.innerHTML=
+
+`
+⚠️ High Churn Probability
+
+<h2>${probability}%</h2>
+
+<div class="progress">
+
+<div class="progress-bar" 
+style="width:${probability}%;background:#e74c3c">
+
+</div>
+
+</div>
+
+`;
+
+
+
+}
+
+else{
+
+
+result.className="result safe";
+
+
+result.innerHTML=
+
+`
+✅ Customer Likely To Stay
+
+<h2>${probability}%</h2>
+
+<div class="progress">
+
+<div class="progress-bar"
+style="width:${probability}%;background:#27ae60">
+
+</div>
+
+</div>
+
+`;
+
+
+
+}
+
+
+});
+
+
+</script>
+
+
+</body>
+
+</html>
+"""
