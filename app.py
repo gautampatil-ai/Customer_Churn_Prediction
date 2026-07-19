@@ -1,335 +1,238 @@
-import os
 import pickle
 import numpy as np
-from flask import Flask, request, jsonify, render_template_string
+import pandas as pd
+import streamlit as st
+import plotly.graph_objects as go
 
-app = Flask(__name__)
+# ----------------------------------------------------------------------------
+# Page configuration
+# ----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Customer Churn Predictor",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# Load the trained model
-MODEL_PATH = 'model.pkl'
-with open(MODEL_PATH, 'rb') as f:
-    model = pickle.load(f)
-
-# HTML Template with Embedded CSS styling (Shadows, layout, and responsiveness)
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Customer Churn Prediction Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+# ----------------------------------------------------------------------------
+# Custom CSS for a clean, professional look
+# ----------------------------------------------------------------------------
+st.markdown(
+    """
     <style>
-        :root {
-            --bg-color: #f4f6f9;
-            --card-bg: #ffffff;
-            --primary-color: #4f46e5;
-            --primary-hover: #4338ca;
-            --text-main: #1f2937;
-            --text-muted: #4b5563;
-            --border-color: #e5e7eb;
-            --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
-            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
-        }
+        .main { background-color: #f7f9fc; }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        .block-container { padding-top: 2rem; padding-bottom: 3rem; }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            padding: 40px 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
+        h1, h2, h3 { font-family: 'Segoe UI', sans-serif; color: #1f2937; }
 
-        .container {
-            width: 100%;
-            max-width: 850px;
-            background: var(--card-bg);
+        .app-header {
+            background: linear-gradient(90deg, #1e3a8a 0%, #2563eb 100%);
+            padding: 2rem 2.5rem;
             border-radius: 16px;
-            box-shadow: var(--shadow-lg);
-            padding: 40px;
-            transition: transform 0.3s ease;
+            color: white;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 24px rgba(30, 58, 138, 0.25);
+        }
+        .app-header h1 { color: white; margin-bottom: 0.25rem; }
+        .app-header p { color: #dbeafe; font-size: 1.05rem; margin: 0; }
+
+        .metric-card {
+            background: white;
+            border-radius: 14px;
+            padding: 1.25rem 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+            border: 1px solid #e5e7eb;
         }
 
-        h2 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: var(--primary-color);
-            font-weight: 700;
-            font-size: 1.8rem;
-            letter-spacing: -0.025em;
+        .result-card {
+            border-radius: 16px;
+            padding: 1.75rem 2rem;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+            margin-top: 1rem;
         }
+        .result-stay { background: #ecfdf5; border: 1px solid #10b981; }
+        .result-churn { background: #fef2f2; border: 1px solid #ef4444; }
 
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 24px;
-        }
-
-        @media (max-width: 600px) {
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
-            body { padding: 20px 10px; }
-            .container { padding: 20px; }
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-
-        label {
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            color: var(--text-muted);
-        }
-
-        input, select {
-            padding: 12px 16px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 0.95rem;
-            font-family: inherit;
-            background-color: #fafafa;
-            transition: all 0.2s ease;
-            box-shadow: var(--shadow-sm);
-        }
-
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            background-color: #fff;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
-        }
-
-        .full-width {
-            grid-column: span 2;
-        }
-        @media (max-width: 600px) {
-            .full-width { grid-column: span 1; }
-        }
-
-        button {
-            width: 100%;
-            padding: 14px;
-            background-color: var(--primary-color);
+        .stButton>button {
+            background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
+            padding: 0.6rem 1.5rem;
+            font-weight: 600;
             font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: var(--shadow-md);
-            transition: all 0.2s ease;
-            margin-top: 10px;
+            width: 100%;
+            transition: all 0.2s ease-in-out;
         }
-
-        button:hover {
-            background-color: var(--primary-hover);
+        .stButton>button:hover {
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
             transform: translateY(-1px);
-            box-shadow: 0 6px 12px rgba(79, 70, 229, 0.2);
         }
 
-        button:active {
-            transform: translateY(1px);
+        section[data-testid="stSidebar"] {
+            background-color: #111827;
         }
-
-        .result-container {
-            margin-top: 30px;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-            font-weight: 600;
-            font-size: 1.15rem;
-            display: none;
-            animation: fadeIn 0.4s ease-in-out forwards;
-            box-shadow: var(--shadow-md);
-        }
-
-        .churn {
-            background-color: #fee2e2;
-            color: #dc2626;
-            border: 1px solid #fca5a5;
-        }
-
-        .loyal {
-            background-color: #dcfce7;
-            color: #16a34a;
-            border: 1px solid #86efac;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        section[data-testid="stSidebar"] * { color: #e5e7eb !important; }
     </style>
-</head>
-<body>
+    """,
+    unsafe_allow_html=True,
+)
 
-<div class="container">
-    <h2>Customer Churn Analytics Prediction</h2>
-    <form id="prediction-form">
-        <div class="form-grid">
-            <div class="form-group">
-                <label for="credit_score">Credit Score</label>
-                <input type="number" id="credit_score" name="credit_score" required min="300" max="850" value="650">
-            </div>
+# ----------------------------------------------------------------------------
+# Load model
+# ----------------------------------------------------------------------------
+@st.cache_resource
+def load_model():
+    with open("model.pkl", "rb") as f:
+        return pickle.load(f)
 
-            <div class="form-group">
-                <label for="country">Country</label>
-                <select id="country" name="country" required>
-                    <option value="0">France</option>
-                    <option value="1">Germany</option>
-                    <option value="2">Spain</option>
-                </select>
-            </div>
+model = load_model()
 
-            <div class="form-group">
-                <label for="gender">Gender</label>
-                <select id="gender" name="gender" required>
-                    <option value="1">Male</option>
-                    <option value="0">Female</option>
-                </select>
-            </div>
+FEATURES = [
+    "credit_score", "country", "gender", "age", "tenure", "balance",
+    "products_number", "credit_card", "active_member", "estimated_salary",
+]
 
-            <div class="form-group">
-                <label for="age">Age</label>
-                <input type="number" id="age" name="age" required min="18" max="100" value="35">
-            </div>
+COUNTRY_MAP = {"France": 0, "Germany": 1, "Spain": 2}
+GENDER_MAP = {"Female": 0, "Male": 1}
 
-            <div class="form-group">
-                <label for="tenure">Tenure (Years)</label>
-                <input type="number" id="tenure" name="tenure" required min="0" max="20" value="5">
-            </div>
+# ----------------------------------------------------------------------------
+# Header
+# ----------------------------------------------------------------------------
+st.markdown(
+    """
+    <div class="app-header">
+        <h1>📊 Customer Churn Predictor</h1>
+        <p>Estimate the likelihood that a bank customer will churn, powered by a Random Forest model.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-            <div class="form-group">
-                <label for="balance">Account Balance ($)</label>
-                <input type="number" step="0.01" id="balance" name="balance" required value="50000">
-            </div>
+# ----------------------------------------------------------------------------
+# Sidebar — About / Info
+# ----------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### ℹ️ About this app")
+    st.write(
+        "This tool uses a trained **Random Forest Classifier** to predict whether "
+        "a bank customer is likely to churn based on their profile and account activity."
+    )
+    st.markdown("### 🧠 Model details")
+    st.write(f"- Algorithm: `RandomForestClassifier`")
+    st.write(f"- Trees: `{model.n_estimators}`")
+    st.write(f"- Features used: `{len(FEATURES)}`")
+    st.markdown("---")
+    st.caption(
+        "⚠️ Country and gender are encoded as France=0, Germany=1, Spain=2 and "
+        "Female=0, Male=1. Adjust the mapping in the code if your training "
+        "encoding was different."
+    )
 
-            <div class="form-group">
-                <label for="products_number">Number of Products</label>
-                <input type="number" id="products_number" name="products_number" required min="1" max="4" value="1">
-            </div>
+# ----------------------------------------------------------------------------
+# Input form
+# ----------------------------------------------------------------------------
+st.markdown("### Enter Customer Details")
 
-            <div class="form-group">
-                <label for="credit_card">Has Credit Card?</label>
-                <select id="credit_card" name="credit_card" required>
-                    <option value="1">Yes</option>
-                    <option value="0">No</option>
-                </select>
-            </div>
+with st.form("churn_form"):
+    col1, col2, col3 = st.columns(3)
 
-            <div class="form-group">
-                <label for="active_member">Is Active Member?</label>
-                <select id="active_member" name="active_member" required>
-                    <option value="1">Yes</option>
-                    <option value="0">No</option>
-                </select>
-            </div>
+    with col1:
+        credit_score = st.slider("Credit Score", 300, 900, 650)
+        age = st.slider("Age", 18, 100, 35)
+        tenure = st.slider("Tenure (years with bank)", 0, 10, 5)
 
-            <div class="form-group">
-                <label for="estimated_salary">Estimated Annual Salary ($)</label>
-                <input type="number" step="0.01" id="estimated_salary" name="estimated_salary" required value="60000">
-            </div>
+    with col2:
+        balance = st.number_input("Account Balance ($)", min_value=0.0, value=50000.0, step=500.0)
+        estimated_salary = st.number_input("Estimated Salary ($)", min_value=0.0, value=60000.0, step=500.0)
+        products_number = st.selectbox("Number of Products", [1, 2, 3, 4], index=0)
 
-            <div class="form-group full-width">
-                <button type="submit">Analyze Churn Risk</button>
-            </div>
-        </div>
-    </form>
+    with col3:
+        country = st.selectbox("Country", list(COUNTRY_MAP.keys()))
+        gender = st.selectbox("Gender", list(GENDER_MAP.keys()))
+        credit_card = st.radio("Has Credit Card?", ["Yes", "No"], horizontal=True)
+        active_member = st.radio("Active Member?", ["Yes", "No"], horizontal=True)
 
-    <div id="result" class="result-container"></div>
-</div>
+    submitted = st.form_submit_button("🔍 Predict Churn")
 
-<script>
-    document.getElementById('prediction-form').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const formData = new FormData(this);
-        const data = {};
-        formData.forEach((value, key) => {
-            data[key] = parseFloat(value);
-        });
+# ----------------------------------------------------------------------------
+# Prediction
+# ----------------------------------------------------------------------------
+if submitted:
+    input_dict = {
+        "credit_score": credit_score,
+        "country": COUNTRY_MAP[country],
+        "gender": GENDER_MAP[gender],
+        "age": age,
+        "tenure": tenure,
+        "balance": balance,
+        "products_number": products_number,
+        "credit_card": 1 if credit_card == "Yes" else 0,
+        "active_member": 1 if active_member == "Yes" else 0,
+        "estimated_salary": estimated_salary,
+    }
+    input_df = pd.DataFrame([input_dict], columns=FEATURES)
 
-        const resultDiv = document.getElementById('result');
-        resultDiv.style.display = 'none';
+    prediction = model.predict(input_df)[0]
+    probability = model.predict_proba(input_df)[0][1]  # probability of class 1 (churn)
 
-        try {
-            const response = await fetch('/predict', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const result = await response.json();
-            
-            resultDiv.style.display = 'block';
-            if (result.prediction === 1) {
-                resultDiv.className = 'result-container churn';
-                resultDiv.innerHTML = `⚠️ High Churn Risk (Probability: ${(result.probability * 100).toFixed(2)}%)`;
-            } else {
-                resultDiv.className = 'result-container loyal';
-                resultDiv.innerHTML = `✅ Customer is Likely to Stay (Loyalty Probability: ${(result.probability * 100).toFixed(2)}%)`;
-            }
-        } catch (error) {
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'result-container churn';
-            resultDiv.innerHTML = 'Error processing estimation. Please check data entries.';
-        }
-    });
-</script>
-</body>
-</html>
-"""
+    st.markdown("### Prediction Result")
 
-@app.route('/')
-def home():
-    return render_template_string(HTML_TEMPLATE)
+    result_col, gauge_col = st.columns([1, 1])
 
-@app.route('/predict', methods=['POST'])
-def predict():
-    try:
-        data = request.get_json()
-        
-        # Extracted features mapping order perfectly matching model requirements
-        features = [
-            data['credit_score'],
-            data['country'],
-            data['gender'],
-            data['age'],
-            data['tenure'],
-            data['balance'],
-            data['products_number'],
-            data['credit_card'],
-            data['active_member'],
-            data['estimated_salary']
-        ]
-        
-        final_features = [np.array(features)]
-        prediction = model.predict(final_features)[0]
-        probabilities = model.predict_proba(final_features)[0]
-        
-        # Calculate active probability score based on class output
-        prob = probabilities[1] if prediction == 1 else probabilities[0]
+    with result_col:
+        if prediction == 1:
+            st.markdown(
+                f"""
+                <div class="result-card result-churn">
+                    <h2>⚠️ Likely to Churn</h2>
+                    <p style="font-size:1.1rem;">This customer shows a high risk of leaving the bank.</p>
+                    <h1 style="color:#ef4444;">{probability*100:.1f}%</h1>
+                    <p>Estimated churn probability</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div class="result-card result-stay">
+                    <h2>✅ Likely to Stay</h2>
+                    <p style="font-size:1.1rem;">This customer shows a low risk of leaving the bank.</p>
+                    <h1 style="color:#10b981;">{probability*100:.1f}%</h1>
+                    <p>Estimated churn probability</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-        return jsonify({
-            'prediction': int(prediction),
-            'probability': float(prob)
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    with gauge_col:
+        fig = go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=probability * 100,
+                number={"suffix": "%"},
+                title={"text": "Churn Risk"},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": "#2563eb"},
+                    "steps": [
+                        {"range": [0, 33], "color": "#dcfce7"},
+                        {"range": [33, 66], "color": "#fef9c3"},
+                        {"range": [66, 100], "color": "#fee2e2"},
+                    ],
+                },
+            )
+        )
+        fig.update_layout(height=280, margin=dict(t=40, b=10, l=20, r=20))
+        st.plotly_chart(fig, use_container_width=True)
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    with st.expander("🔎 View input data sent to the model"):
+        st.dataframe(input_df, use_container_width=True)
+
+else:
+    st.info("Fill in the customer details above and click **Predict Churn** to see the result.")
+
+st.markdown("---")
+st.caption("Built with Streamlit · Random Forest model · For demonstration purposes only.")
